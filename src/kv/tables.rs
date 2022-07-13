@@ -1,5 +1,5 @@
 use super::*;
-use crate::{models::*, zeroless_view, StageId};
+use crate::{commitment::BranchData, models::*, zeroless_view, StageId};
 use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
@@ -796,6 +796,39 @@ impl TableDecode for CallTraceSetEntry {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StorageCommitmentKey {
+    pub address: Address,
+    pub prefix: Vec<u8>,
+}
+
+impl TableEncode for StorageCommitmentKey {
+    type Encoded = Vec<u8>;
+
+    fn encode(mut self) -> Self::Encoded {
+        let mut out = Vec::with_capacity(ADDRESS_LENGTH + self.prefix.len());
+        out.extend_from_slice(&self.address.encode());
+        out.append(&mut self.prefix);
+        out
+    }
+}
+
+impl TableDecode for StorageCommitmentKey {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() < ADDRESS_LENGTH {
+            return Err(TooShort::<ADDRESS_LENGTH> { got: b.len() }.into());
+        }
+
+        Ok(StorageCommitmentKey {
+            address: Address::from_slice(&b[..ADDRESS_LENGTH]),
+            prefix: b
+                .get(ADDRESS_LENGTH..)
+                .map(|v| v.to_vec())
+                .unwrap_or_default(),
+        })
+    }
+}
+
 decl_table!(Account => Address => crate::models::Account);
 decl_table!(Storage => Address => (H256, U256));
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
@@ -807,6 +840,9 @@ decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Bytes);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
+decl_table!(AccountCommitment => Vec<u8> => BranchData<Address>);
+decl_table!(StorageCommitment => StorageCommitmentKey => BranchData<H256> => Address);
+decl_table!(StorageRoot => Address => H256);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
@@ -858,6 +894,9 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(Code),
             table_entry!(TrieAccount),
             table_entry!(TrieStorage),
+            table_entry!(AccountCommitment),
+            table_entry!(StorageCommitment),
+            table_entry!(StorageRoot),
             table_entry!(HeaderNumber),
             table_entry!(CanonicalHeader),
             table_entry!(Header),

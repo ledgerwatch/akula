@@ -56,6 +56,7 @@ dependencies = [
  "aes",
  "anyhow",
  "array-init",
+ "array-macro",
  "arrayref",
  "arrayvec 0.7.2",
  "async-recursion",
@@ -158,6 +159,7 @@ dependencies = [
  "tracing-subscriber",
  "triehash",
  "trust-dns-resolver",
+ "unsigned-varint",
  "url",
  "vergen",
  "walkdir",
@@ -198,6 +200,12 @@ name = "array-init"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfb6d71005dc22a708c7496eee5c8dc0300ee47355de6256c3b35b12b5fef596"
+
+[[package]]
+name = "array-macro"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "457661fa6716c30b73d7c41400a8a78780d20523b83a9441dabec28e93f27cf4"
 
 [[package]]
 name = "arrayref"
@@ -2832,8 +2840,7 @@ dependencies = [
 [[package]]
 name = "proptest"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e0d9cc07f18492d879586c92b485def06bc850da3118075cd45d50e9c95b0e5"
+source = "git+https://github.com/mikerite/proptest?branch=fix-258#3338bffc76b496bde072dda5f1613b076d63b6f7"
 dependencies = [
  "bit-set",
  "bitflags",
@@ -4142,6 +4149,12 @@ checksum = "854cbdc4f7bc6ae19c820d44abdc3277ac3e1b2b93db20a636825d9322fb60e6"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unsigned-varint"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86a8dc7f45e4c1b0d30e43038c38f274e77af056aa5f74b93c2cf9eb3c1c836"
 
 [[package]]
 name = "url"
