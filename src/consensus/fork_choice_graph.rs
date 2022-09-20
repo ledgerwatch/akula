@@ -1,6 +1,5 @@
 use super::*;
-use crate::models::{BlockHeader, BlockNumber, H256};
-use ethnum::U256;
+use crate::models::*;
 use hashbrown::HashSet;
 use hashlink::LruCache;
 use std::borrow::Borrow;
@@ -18,7 +17,7 @@ type Ancestor = H256;
 #[derive(Debug)]
 pub struct ForkChoiceGraph {
     head: Link,
-    chains: LruCache<H256, (U256, Depth, Ancestor)>,
+    chains: LruCache<H256, (u128, Depth, Ancestor)>,
 
     skip_list: LruCache<H256, HashSet<H256>>,
     raw: LruCache<H256, BlockHeader>,
@@ -106,7 +105,7 @@ impl ForkChoiceGraph {
 
         for root in roots {
             let mut current = root;
-            let mut td = U256::ZERO;
+            let mut td = 0;
             let mut depth = 0;
 
             while let Some(header) = self.raw.get(&current) {
@@ -212,7 +211,7 @@ mod tests {
                 BlockHeader {
                     parent_hash: forked_head,
                     number,
-                    difficulty: U256::from(10u64),
+                    difficulty: 10,
                     extra_data: FORKED_EXTRA_DATA.into(),
                     ..Default::default()
                 },
@@ -228,7 +227,7 @@ mod tests {
                 BlockHeader {
                     parent_hash: forked_head,
                     number,
-                    difficulty: U256::from(10u64),
+                    difficulty: 10,
                     extra_data: FORKED_EXTRA_DATA.into(),
                     ..Default::default()
                 },
@@ -248,7 +247,7 @@ mod tests {
                 BlockHeader {
                     parent_hash: canonical_head,
                     number,
-                    difficulty: U256::from(1000 * 10u64),
+                    difficulty: 1000 * 10,
                     extra_data: CANONICAL_EXTRA_DATA.into(),
                     ..Default::default()
                 },
@@ -266,7 +265,7 @@ mod tests {
                 BlockHeader {
                     parent_hash: forked_head,
                     number,
-                    difficulty: U256::from(10u64),
+                    difficulty: 10,
                     extra_data: FORKED_EXTRA_DATA.into(),
                     ..Default::default()
                 },
@@ -284,7 +283,7 @@ mod tests {
                 BlockHeader {
                     parent_hash: better_canonical_head,
                     number,
-                    difficulty: U256::from(10000000000 * 10u64),
+                    difficulty: 10000000000 * 10,
                     extra_data: BETTER_CANONICAL_EXTRA_DATA.into(),
                     ..Default::default()
                 },

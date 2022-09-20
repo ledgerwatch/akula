@@ -159,6 +159,7 @@ dependencies = [
  "tracing-subscriber",
  "triehash",
  "trust-dns-resolver",
+ "unsigned-varint",
  "url",
  "vergen",
  "walkdir",
@@ -1332,7 +1333,7 @@ dependencies = [
 [[package]]
 name = "ethereum-jsonrpc"
 version = "0.1.0"
-source = "git+https://github.com/vorot93/ethereum-jsonrpc#5cf7550fa184ab7e5ddb76da464817492c058a10"
+source = "git+https://github.com/vorot93/ethereum-jsonrpc?branch=vorot93/change-num-types#daca84fdfe54bf734d4c0c5190f509bcca7eefd2"
 dependencies = [
  "arrayvec 0.7.2",
  "bytes",
@@ -4195,6 +4196,12 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unsigned-varint"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86a8dc7f45e4c1b0d30e43038c38f274e77af056aa5f74b93c2cf9eb3c1c836"
 
 [[package]]
 name = "url"

@@ -1,4 +1,4 @@
-use crate::models::{BlockNumber, ChainConfig, H256, U256};
+use crate::models::*;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Status {
@@ -8,11 +8,11 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn new(height: BlockNumber, hash: H256, td: U256) -> Self {
+    pub fn new(height: BlockNumber, hash: H256, td: u128) -> Self {
         Self {
             height,
             hash,
-            total_difficulty: H256::from(td.to_be_bytes()),
+            total_difficulty: H256::from(td.as_u256().to_be_bytes()),
         }
     }
 }
@@ -21,8 +21,15 @@ impl<'a> From<&'a ChainConfig> for Status {
     fn from(config: &'a ChainConfig) -> Self {
         let height = config.chain_spec.genesis.number;
         let hash = config.genesis_hash;
-        let total_difficulty =
-            H256::from(config.chain_spec.genesis.seal.difficulty().to_be_bytes());
+        let total_difficulty = H256::from(
+            config
+                .chain_spec
+                .genesis
+                .seal
+                .difficulty()
+                .as_u256()
+                .to_be_bytes(),
+        );
         Self {
             height,
             hash,

@@ -3,15 +3,14 @@ use crate::{
     models::{BlockHeader, BlockNumber},
 };
 use ethereum_types::Address;
-use ethnum::U256;
 use primitive_types::H256;
 use std::collections::BTreeMap;
 use tracing::*;
 
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
 const NONCE_DROP: u64 = 0x0000000000000000;
-const DIFF_NOTURN: U256 = U256::ONE;
-const DIFF_INTURN: U256 = U256::new(2);
+const DIFF_NOTURN: u128 = 1;
+const DIFF_INTURN: u128 = 2;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Vote {

@@ -357,7 +357,7 @@ pub fn engine_factory(
             chain_config.consensus.eip1559_block,
             block_reward.into(),
             beneficiary.into(),
-            terminal_total_difficulty,
+            terminal_total_difficulty.map(|v| v.as_u128()),
             terminal_block_hash,
             terminal_block_number,
             since,

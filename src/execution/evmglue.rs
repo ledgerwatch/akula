@@ -576,7 +576,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
         let block_difficulty = if self.block_spec.revision >= Revision::Paris {
             h256_to_u256(self.header.mix_hash)
         } else {
-            self.header.difficulty
+            self.header.difficulty.as_u256()
         };
         let chain_id = self.block_spec.params.chain_id.0.into();
         let block_base_fee = base_fee_per_gas;

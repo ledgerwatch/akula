@@ -236,7 +236,7 @@ pub mod td {
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<U256>> {
+    ) -> anyhow::Result<Option<u128>> {
         let number = number.into();
         trace!("Reading total difficulty at block {number}");
 

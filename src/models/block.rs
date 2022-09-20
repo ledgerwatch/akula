@@ -414,7 +414,7 @@ mod tests {
                 transactions_root: EMPTY_ROOT,
                 receipts_root: EMPTY_ROOT,
                 logs_bloom: Bloom::zero(),
-                difficulty: 12_555_442_155_599_u128.into(),
+                difficulty: 12_555_442_155_599,
                 number: 13_000_013.into(),
                 gas_limit: 3_141_592,
                 gas_used: 0,

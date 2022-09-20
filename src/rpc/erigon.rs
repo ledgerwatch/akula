@@ -56,7 +56,7 @@ where
                         transactions_root,
                         receipts_root,
                         logs_bloom,
-                        difficulty,
+                        difficulty: difficulty.into(),
                         number: number.0.into(),
                         gas_limit: gas_limit.into(),
                         gas_used: gas_used.into(),

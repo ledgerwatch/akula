@@ -166,7 +166,7 @@ pub enum SealVerificationParams {
             skip_serializing_if = "Option::is_none",
             with = "::serde_with::rust::unwrap_or_skip"
         )]
-        terminal_total_difficulty: Option<U256>,
+        terminal_total_difficulty: Option<U128>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -285,7 +285,7 @@ pub enum Seal {
     Ethash {
         #[serde(with = "hexbytes")]
         vanity: Bytes,
-        difficulty: U256,
+        difficulty: U128,
         nonce: H64,
         mix_hash: H256,
     },
@@ -297,9 +297,9 @@ pub enum Seal {
 }
 
 impl Seal {
-    pub fn difficulty(&self) -> U256 {
+    pub fn difficulty(&self) -> u128 {
         match self {
-            Seal::Ethash { difficulty, .. } => *difficulty,
+            Seal::Ethash { difficulty, .. } => difficulty.as_u128(),
             Seal::Clique { score, .. } => (*score as u8).into(),
         }
     }

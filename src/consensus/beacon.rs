@@ -23,7 +23,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct EngineApiServerImpl {
     chain_tip_sender: watch::Sender<ExternalForkChoice>,
-    terminal_total_difficulty: Option<U256>,
+    terminal_total_difficulty: Option<u128>,
     terminal_block_hash: Option<H256>,
     terminal_block_number: Option<BlockNumber>,
 }
@@ -71,7 +71,7 @@ impl EngineApiServer for EngineApiServerImpl {
         transition_configuration: TransitionConfiguration,
     ) -> RpcResult<TransitionConfiguration> {
         let our_transition_configuration = TransitionConfiguration {
-            terminal_total_difficulty: self.terminal_total_difficulty.unwrap_or_default(),
+            terminal_total_difficulty: self.terminal_total_difficulty.unwrap_or_default().into(),
             terminal_block_hash: self.terminal_block_hash.unwrap_or_default(),
             terminal_block_number: self.terminal_block_number.unwrap_or_default().0.into(),
         };
@@ -112,7 +112,7 @@ impl BeaconConsensus {
         eip1559_block: Option<BlockNumber>,
         block_reward: BlockRewardSchedule,
         beneficiary_schedule: BeneficiarySchedule,
-        terminal_total_difficulty: Option<U256>,
+        terminal_total_difficulty: Option<u128>,
         terminal_block_hash: Option<H256>,
         terminal_block_number: Option<BlockNumber>,
         since: Option<BlockNumber>,

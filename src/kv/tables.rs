@@ -3,7 +3,7 @@ use crate::{models::*, zeroless_view, StageId};
 use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
 use modular_bitfield::prelude::*;
@@ -229,6 +229,17 @@ impl<const MAXIMUM: usize> Display for TooLong<MAXIMUM> {
 
 impl<const MAXIMUM: usize> std::error::Error for TooLong<MAXIMUM> {}
 
+#[derive(Clone, Debug)]
+pub struct UnexpectedEnd;
+
+impl Display for UnexpectedEnd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unexpected end")
+    }
+}
+
+impl std::error::Error for UnexpectedEnd {}
+
 macro_rules! u64_table_object {
     ($ty:ident) => {
         impl TableEncode for $ty {
@@ -253,6 +264,23 @@ macro_rules! u64_table_object {
 u64_table_object!(u64);
 u64_table_object!(BlockNumber);
 u64_table_object!(TxIndex);
+
+impl TableEncode for u128 {
+    type Encoded = [u8; 16];
+
+    fn encode(self) -> Self::Encoded {
+        self.to_be_bytes()
+    }
+}
+
+impl TableDecode for u128 {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        match b.len() {
+            16 => Ok(Self::from_be_bytes(*array_ref!(b, 0, 16))),
+            other => Err(InvalidLength::<16> { got: other }.into()),
+        }
+    }
+}
 
 #[derive(
     Clone,
@@ -323,7 +351,6 @@ macro_rules! scale_table_object {
 }
 
 scale_table_object!(BodyForStorage);
-scale_table_object!(BlockHeader);
 scale_table_object!(MessageWithSignature);
 
 macro_rules! ron_table_object {
@@ -345,6 +372,214 @@ macro_rules! ron_table_object {
 }
 
 ron_table_object!(ChainSpec);
+
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+struct HeaderFlags {
+    ommers_hash: bool,
+    transactions_root: bool,
+    receipts_root: bool,
+    logs_bloom: bool,
+    difficulty: bool,
+    mix_hash: bool,
+    nonce: bool,
+    base_fee_per_gas: bool,
+}
+
+impl TableEncode for BlockHeader {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut buffer = vec![0];
+
+        let mut flags = HeaderFlags::default();
+
+        buffer.extend_from_slice(&self.parent_hash[..]);
+        if self.ommers_hash != EMPTY_LIST_HASH {
+            flags.set_ommers_hash(true);
+            buffer.extend_from_slice(&self.ommers_hash[..]);
+        }
+        buffer.extend_from_slice(&self.beneficiary[..]);
+        buffer.extend_from_slice(&self.state_root[..]);
+        if self.transactions_root != EMPTY_ROOT {
+            flags.set_transactions_root(true);
+            buffer.extend_from_slice(&self.transactions_root[..]);
+        }
+        if self.receipts_root != EMPTY_ROOT {
+            flags.set_receipts_root(true);
+            buffer.extend_from_slice(&self.receipts_root[..]);
+        }
+        if !self.logs_bloom.is_zero() {
+            flags.set_logs_bloom(true);
+            buffer.extend_from_slice(&self.logs_bloom[..]);
+        }
+        if self.difficulty != 0 {
+            flags.set_difficulty(true);
+
+            let mut encode_buffer = unsigned_varint::encode::u128_buffer();
+            buffer.extend_from_slice(unsigned_varint::encode::u128(
+                self.difficulty,
+                &mut encode_buffer,
+            ));
+        }
+        let mut encode_buffer = unsigned_varint::encode::u64_buffer();
+
+        for item in [
+            self.number.0,
+            self.gas_limit,
+            self.gas_used,
+            self.timestamp,
+            u64::try_from(self.extra_data.len()).unwrap(),
+        ] {
+            buffer.extend_from_slice(unsigned_varint::encode::u64(item, &mut encode_buffer));
+        }
+
+        buffer.extend_from_slice(&self.extra_data);
+
+        if !self.mix_hash.is_zero() {
+            flags.set_mix_hash(true);
+            buffer.extend_from_slice(&self.mix_hash[..]);
+        }
+
+        if !self.nonce.is_zero() {
+            flags.set_nonce(true);
+            buffer.extend_from_slice(&self.nonce[..]);
+        }
+
+        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+            flags.set_base_fee_per_gas(true);
+            // last item so no need to write out length
+            buffer.extend_from_slice(&TableEncode::encode(base_fee_per_gas));
+        }
+
+        let fs = flags.into_bytes()[0];
+        buffer[0] = fs;
+
+        buffer
+    }
+}
+
+impl TableDecode for BlockHeader {
+    fn decode(mut buf: &[u8]) -> anyhow::Result<Self> {
+        if buf.is_empty() {
+            return Err(TooShort::<1> { got: 0 }.into());
+        }
+
+        let flags = HeaderFlags::from_bytes([buf.get_u8()]);
+
+        let parent_hash = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+        buf.advance(KECCAK_LENGTH);
+
+        let ommers_hash = if flags.ommers_hash() {
+            let v = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+            buf.advance(KECCAK_LENGTH);
+            v
+        } else {
+            EMPTY_LIST_HASH
+        };
+
+        let beneficiary = Address::from_slice(buf.get(..ADDRESS_LENGTH).ok_or(UnexpectedEnd)?);
+        buf.advance(ADDRESS_LENGTH);
+
+        let state_root = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+        buf.advance(KECCAK_LENGTH);
+
+        let transactions_root = if flags.transactions_root() {
+            let v = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+            buf.advance(KECCAK_LENGTH);
+            v
+        } else {
+            EMPTY_ROOT
+        };
+
+        let receipts_root = if flags.receipts_root() {
+            let v = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+            buf.advance(KECCAK_LENGTH);
+            v
+        } else {
+            EMPTY_ROOT
+        };
+
+        let logs_bloom = if flags.logs_bloom() {
+            let v = Bloom::from_slice(buf.get(..BLOOM_BYTE_LENGTH).ok_or(UnexpectedEnd)?);
+            buf.advance(BLOOM_BYTE_LENGTH);
+            v
+        } else {
+            Bloom::zero()
+        };
+
+        let number;
+        let gas_limit;
+        let gas_used;
+        let timestamp;
+        let extra_data_len;
+
+        let mut difficulty = 0;
+        if flags.difficulty() {
+            (difficulty, buf) = unsigned_varint::decode::u128(buf)?;
+        }
+        (number, buf) = unsigned_varint::decode::u64(buf)?;
+        (gas_limit, buf) = unsigned_varint::decode::u64(buf)?;
+        (gas_used, buf) = unsigned_varint::decode::u64(buf)?;
+        (timestamp, buf) = unsigned_varint::decode::u64(buf)?;
+        (extra_data_len, buf) = unsigned_varint::decode::u64(buf)?;
+
+        let number = BlockNumber(number);
+
+        let extra_data = if extra_data_len > 0 {
+            let v = buf
+                .get(..extra_data_len as usize)
+                .ok_or(UnexpectedEnd)?
+                .to_vec()
+                .into();
+            buf.advance(extra_data_len as usize);
+            v
+        } else {
+            Bytes::new()
+        };
+
+        let mix_hash = if flags.mix_hash() {
+            let v = H256::from_slice(buf.get(..KECCAK_LENGTH).ok_or(UnexpectedEnd)?);
+            buf.advance(KECCAK_LENGTH);
+            v
+        } else {
+            H256::zero()
+        };
+
+        let nonce = if flags.nonce() {
+            let v = H64::from_slice(buf.get(..8).ok_or(UnexpectedEnd)?);
+            buf.advance(8);
+            v
+        } else {
+            H64::zero()
+        };
+
+        let base_fee_per_gas = if flags.base_fee_per_gas() {
+            Some(TableDecode::decode(buf)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            parent_hash,
+            ommers_hash,
+            beneficiary,
+            state_root,
+            transactions_root,
+            receipts_root,
+            logs_bloom,
+            difficulty,
+            number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            mix_hash,
+            nonce,
+            base_fee_per_gas,
+        })
+    }
+}
 
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
@@ -421,6 +656,28 @@ impl TableDecode for Vec<H256> {
     }
 }
 
+const MIX_HASH_LENGTH: usize = 8;
+
+impl TableEncode for H64 {
+    type Encoded = [u8; MIX_HASH_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for H64
+where
+    InvalidLength<MIX_HASH_LENGTH>: 'static,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        match b.len() {
+            MIX_HASH_LENGTH => Ok(Self::from_slice(b)),
+            other => Err(InvalidLength::<MIX_HASH_LENGTH> { got: other }.into()),
+        }
+    }
+}
+
 impl TableEncode for H256 {
     type Encoded = [u8; KECCAK_LENGTH];
 
@@ -435,8 +692,28 @@ where
 {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
-            KECCAK_LENGTH => Ok(H256::from_slice(b)),
+            KECCAK_LENGTH => Ok(Self::from_slice(b)),
             other => Err(InvalidLength::<KECCAK_LENGTH> { got: other }.into()),
+        }
+    }
+}
+
+impl TableEncode for Bloom {
+    type Encoded = [u8; BLOOM_BYTE_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for Bloom
+where
+    InvalidLength<BLOOM_BYTE_LENGTH>: 'static,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        match b.len() {
+            BLOOM_BYTE_LENGTH => Ok(Self::from_slice(b)),
+            other => Err(InvalidLength::<BLOOM_BYTE_LENGTH> { got: other }.into()),
         }
     }
 }
@@ -808,7 +1085,7 @@ decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => BlockNumber => BlockHeader);
-decl_table!(HeadersTotalDifficulty => BlockNumber => U256);
+decl_table!(HeadersTotalDifficulty => BlockNumber => u128);
 decl_table!(BlockBody => BlockNumber => BodyForStorage);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(TotalGas => BlockNumber => u64);

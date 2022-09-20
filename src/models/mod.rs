@@ -24,7 +24,7 @@ use std::{
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign},
 };
 
-pub use ethereum_types::{Address, Bloom, H128, H160, H256, H512, H64, U512, U64};
+pub use ethereum_types::{Address, Bloom, H128, H160, H256, H512, H64, U128, U512, U64};
 pub use ethnum::prelude::*;
 
 pub const KECCAK_LENGTH: usize = H256::len_bytes();
