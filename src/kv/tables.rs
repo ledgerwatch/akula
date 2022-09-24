@@ -351,7 +351,6 @@ macro_rules! scale_table_object {
 }
 
 scale_table_object!(BodyForStorage);
-scale_table_object!(MessageWithSignature);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {
@@ -372,6 +371,20 @@ macro_rules! ron_table_object {
 }
 
 ron_table_object!(ChainSpec);
+
+impl TableEncode for MessageWithSignature {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        self.compact_encode()
+    }
+}
+
+impl TableDecode for MessageWithSignature {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        Self::compact_decode(b)
+    }
+}
 
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]

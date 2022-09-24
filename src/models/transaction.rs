@@ -4,11 +4,16 @@ use crate::{
     trie::*,
     util::*,
 };
+use anyhow::{bail, format_err};
+use arrayvec::ArrayVec;
 use bytes::*;
 use derive_more::Deref;
 use educe::Educe;
+use eio::{FromBytes, ToBytes};
 use fastrlp::*;
 use hex_literal::hex;
+use modular_bitfield::prelude::*;
+use num_enum::TryFromPrimitive;
 use parity_scale_codec::{Compact, Decode, Encode, EncodeAsRef, EncodeLike, Input};
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
@@ -240,6 +245,69 @@ impl<'a> From<&'a Option<ChainId>> for OptionalChainId {
     }
 }
 
+#[bitfield]
+pub struct MessageVariant {
+    version: B2,
+    #[skip]
+    unused: B6,
+}
+
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LegacyMessageFlags {
+    variant: B2,
+
+    v_len: B5,
+
+    is_call: bool,
+    nonce_len: B3,
+    gas_price_len: B5,
+    gas_limit_len: B3,
+    value_len: B5,
+}
+
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EIP2930MessageFlags {
+    variant: B2,
+
+    v_len: B5,
+
+    is_call: bool,
+    nonce_len: B3,
+    gas_price_len: B5,
+    gas_limit_len: B3,
+    value_len: B5,
+    access_list_size_len: B3,
+
+    #[skip]
+    unused: B5,
+}
+
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EIP1559MessageFlags {
+    variant: B2,
+
+    v_len: B5,
+
+    is_call: bool,
+    nonce_len: B3,
+    max_priority_fee_per_gas_len: B5,
+    max_fee_per_gas_len: B5,
+    gas_limit_len: B3,
+    value_len: B5,
+    access_list_size_len: B3,
+}
+
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u8)]
+enum MessageVersion {
+    Legacy = 0,
+    EIP2930 = 1,
+    EIP1559 = 2,
+}
+
 #[derive(Clone, Educe, PartialEq, Eq, Encode, Decode)]
 #[educe(Debug)]
 pub enum Message {
@@ -436,7 +504,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Debug, Deref, PartialEq, Eq, Encode, Decode)]
+#[derive(Clone, Debug, Deref, PartialEq, Eq)]
 pub struct MessageWithSignature {
     #[deref]
     pub message: Message,
@@ -450,8 +518,320 @@ pub struct MessageWithSender {
     pub sender: Address,
 }
 
+fn variable_to_compact<const N: usize, T: ToBytes<N>>(v: T) -> ArrayVec<u8, N> {
+    v.to_be_bytes()
+        .into_iter()
+        .skip_while(|&v| v == 0)
+        .collect()
+}
+
+fn variable_from_compact<const N: usize, T: Default + FromBytes<N>>(
+    mut buf: &[u8],
+    len: u8,
+) -> anyhow::Result<(T, &[u8])> {
+    let len = len as usize;
+    if len > N {
+        bail!("len too big");
+    }
+    if buf.len() < len {
+        bail!("input too short");
+    }
+
+    let mut value = T::default();
+    if len > 0 {
+        let mut arr = [0; N];
+        arr[N - len..].copy_from_slice(&buf[..len]);
+        value = T::from_be_bytes(arr);
+        buf.advance(len);
+    }
+
+    Ok((value, buf))
+}
+
+fn h160_from_compact(mut buf: &[u8]) -> anyhow::Result<(H160, &[u8])> {
+    let v = H160::from_slice(
+        buf.get(..20)
+            .ok_or_else(|| format_err!("input too short"))?,
+    );
+    buf.advance(20);
+    Ok((v, buf))
+}
+
+fn h256_from_compact(mut buf: &[u8]) -> anyhow::Result<(H256, &[u8])> {
+    let v = H256::from_slice(
+        buf.get(..32)
+            .ok_or_else(|| format_err!("input too short"))?,
+    );
+    buf.advance(32);
+    Ok((v, buf))
+}
+
+fn signature_from_compact(
+    mut buf: &[u8],
+    v_len: u8,
+) -> anyhow::Result<(MessageSignature, Option<ChainId>, &[u8])> {
+    let (v, r, s);
+
+    (v, buf) = variable_from_compact(buf, v_len)?;
+
+    let YParityAndChainId {
+        odd_y_parity,
+        chain_id,
+    } = YParityAndChainId::from_v(v).ok_or_else(|| format_err!("invalid v"))?;
+
+    (r, buf) = h256_from_compact(buf)?;
+    (s, buf) = h256_from_compact(buf)?;
+
+    let signature = MessageSignature::new(odd_y_parity, r, s)
+        .ok_or_else(|| format_err!("failed to reconstruct signature"))?;
+
+    Ok((signature, chain_id, buf))
+}
+
+fn access_list_from_compact(
+    mut buf: &[u8],
+    size_len: u8,
+) -> anyhow::Result<(Vec<AccessListItem>, &[u8])> {
+    let access_list_size;
+    (access_list_size, buf) = variable_from_compact(buf, size_len)?;
+
+    // NOTE: using `Vec::with_capacity` requires extra care here because of potential panic on bad input.
+    let mut access_list = Vec::new();
+    for _ in 0..access_list_size {
+        let address;
+        (address, buf) = h160_from_compact(buf)?;
+
+        let num_slots;
+        (num_slots, buf) = unsigned_varint::decode::usize(buf)?;
+
+        let mut slots = Vec::new();
+        for _ in 0..num_slots {
+            let slot;
+            (slot, buf) = h256_from_compact(buf)?;
+
+            slots.push(slot);
+        }
+        access_list.push(AccessListItem { address, slots });
+    }
+
+    Ok((access_list, buf))
+}
+
 impl MessageWithSignature {
-    fn encode_inner(&self, out: &mut dyn BufMut, standalone: bool) {
+    pub fn compact_encode(&self) -> Vec<u8> {
+        fn encode_access_list(buf: &mut impl BufMut, access_list: &[AccessListItem]) {
+            let mut slots_num_buffer = unsigned_varint::encode::usize_buffer();
+            for AccessListItem { address, slots } in access_list {
+                buf.put_slice(&address[..]);
+                buf.put_slice(unsigned_varint::encode::usize(
+                    slots.len(),
+                    &mut slots_num_buffer,
+                ));
+                for slot in slots {
+                    buf.put_slice(&slot[..]);
+                }
+            }
+        }
+
+        match &self.message {
+            Message::Legacy {
+                chain_id,
+                nonce,
+                gas_price,
+                gas_limit,
+                action,
+                value,
+                input,
+            } => {
+                let mut flags = LegacyMessageFlags::default();
+                flags.set_variant(MessageVersion::Legacy as u8);
+
+                let v = YParityAndChainId {
+                    chain_id: *chain_id,
+                    odd_y_parity: self.signature.odd_y_parity,
+                }
+                .v();
+
+                let v_encoded = variable_to_compact(v);
+                flags.set_v_len(v_encoded.len() as u8);
+
+                let nonce_encoded = variable_to_compact(*nonce);
+                flags.set_nonce_len(nonce_encoded.len() as u8);
+
+                let gas_price_encoded = variable_to_compact(*gas_price);
+                flags.set_gas_price_len(gas_price_encoded.len() as u8);
+
+                let gas_limit_encoded = variable_to_compact(*gas_limit);
+                flags.set_gas_limit_len(gas_limit_encoded.len() as u8);
+
+                let address = if let TransactionAction::Call(address) = action {
+                    flags.set_is_call(true);
+                    Some(*address)
+                } else {
+                    None
+                };
+
+                let value_encoded = variable_to_compact(*value);
+                flags.set_value_len(value_encoded.len() as u8);
+
+                let mut out = flags.into_bytes().to_vec();
+                out.extend_from_slice(&v_encoded);
+                out.extend_from_slice(&self.signature.r[..]);
+                out.extend_from_slice(&self.signature.s[..]);
+                out.extend_from_slice(&nonce_encoded);
+                out.extend_from_slice(&gas_price_encoded);
+                out.extend_from_slice(&gas_limit_encoded);
+
+                if let Some(address) = address {
+                    out.extend_from_slice(&address[..]);
+                }
+
+                out.extend_from_slice(&value_encoded);
+                out.extend_from_slice(input);
+
+                out
+            }
+            Message::EIP2930 {
+                chain_id,
+                nonce,
+                gas_price,
+                gas_limit,
+                action,
+                value,
+                input,
+                access_list,
+            } => {
+                let mut flags = EIP2930MessageFlags::default();
+                flags.set_variant(MessageVersion::EIP2930 as u8);
+
+                let v = YParityAndChainId {
+                    chain_id: Some(*chain_id),
+                    odd_y_parity: self.signature.odd_y_parity,
+                }
+                .v();
+
+                let v_encoded = variable_to_compact(v);
+                flags.set_v_len(v_encoded.len() as u8);
+
+                let nonce_encoded = variable_to_compact(*nonce);
+                flags.set_nonce_len(nonce_encoded.len() as u8);
+
+                let gas_price_encoded = variable_to_compact(*gas_price);
+                flags.set_gas_price_len(gas_price_encoded.len() as u8);
+
+                let gas_limit_encoded = variable_to_compact(*gas_limit);
+                flags.set_gas_limit_len(gas_limit_encoded.len() as u8);
+
+                let address = if let TransactionAction::Call(address) = action {
+                    flags.set_is_call(true);
+                    Some(*address)
+                } else {
+                    None
+                };
+
+                let value_encoded = variable_to_compact(*value);
+                flags.set_value_len(value_encoded.len() as u8);
+
+                let access_list_size_encoded = variable_to_compact(access_list.len());
+                flags.set_access_list_size_len(access_list_size_encoded.len() as u8);
+
+                let mut out = flags.into_bytes().to_vec();
+                out.extend_from_slice(&v_encoded);
+                out.extend_from_slice(&self.signature.r[..]);
+                out.extend_from_slice(&self.signature.s[..]);
+                out.extend_from_slice(&nonce_encoded);
+                out.extend_from_slice(&gas_price_encoded);
+                out.extend_from_slice(&gas_limit_encoded);
+
+                if let Some(address) = address {
+                    out.extend_from_slice(&address[..]);
+                }
+
+                out.extend_from_slice(&value_encoded);
+
+                out.extend_from_slice(&access_list_size_encoded);
+                encode_access_list(&mut out, access_list);
+
+                out.extend_from_slice(input);
+
+                out
+            }
+            Message::EIP1559 {
+                chain_id,
+                nonce,
+                max_priority_fee_per_gas,
+                max_fee_per_gas,
+                gas_limit,
+                action,
+                value,
+                input,
+                access_list,
+            } => {
+                let mut flags = EIP1559MessageFlags::default();
+                flags.set_variant(MessageVersion::EIP1559 as u8);
+
+                let v = YParityAndChainId {
+                    chain_id: Some(*chain_id),
+                    odd_y_parity: self.signature.odd_y_parity,
+                }
+                .v();
+
+                let v_encoded = variable_to_compact(v);
+                flags.set_v_len(v_encoded.len() as u8);
+
+                let nonce_encoded = variable_to_compact(*nonce);
+                flags.set_nonce_len(nonce_encoded.len() as u8);
+
+                let max_priority_fee_per_gas_encoded =
+                    variable_to_compact(*max_priority_fee_per_gas);
+                flags
+                    .set_max_priority_fee_per_gas_len(max_priority_fee_per_gas_encoded.len() as u8);
+
+                let max_fee_per_gas_encoded = variable_to_compact(*max_fee_per_gas);
+                flags.set_max_fee_per_gas_len(max_fee_per_gas_encoded.len() as u8);
+
+                let gas_limit_encoded = variable_to_compact(*gas_limit);
+                flags.set_gas_limit_len(gas_limit_encoded.len() as u8);
+
+                let address = if let TransactionAction::Call(address) = action {
+                    flags.set_is_call(true);
+                    Some(*address)
+                } else {
+                    None
+                };
+
+                let value_encoded = variable_to_compact(*value);
+                flags.set_value_len(value_encoded.len() as u8);
+
+                let access_list_size_encoded = variable_to_compact(access_list.len());
+                flags.set_access_list_size_len(access_list_size_encoded.len() as u8);
+
+                let mut out = flags.into_bytes().to_vec();
+                out.extend_from_slice(&v_encoded);
+                out.extend_from_slice(&self.signature.r[..]);
+                out.extend_from_slice(&self.signature.s[..]);
+                out.extend_from_slice(&nonce_encoded);
+                out.extend_from_slice(&max_priority_fee_per_gas_encoded);
+                out.extend_from_slice(&max_fee_per_gas_encoded);
+                out.extend_from_slice(&gas_limit_encoded);
+
+                if let Some(address) = address {
+                    out.extend_from_slice(&address[..]);
+                }
+
+                out.extend_from_slice(&value_encoded);
+
+                out.extend_from_slice(&access_list_size_encoded);
+                encode_access_list(&mut out, access_list);
+
+                out.extend_from_slice(input);
+
+                out
+            }
+        }
+    }
+
+    fn rlp_encode_inner(&self, out: &mut dyn BufMut, standalone: bool) {
         match &self.message {
             Message::Legacy {
                 chain_id,
@@ -597,17 +977,195 @@ impl MessageWithSignature {
             }
         }
     }
+
+    pub fn compact_decode(mut buf: &[u8]) -> anyhow::Result<Self> {
+        if buf.is_empty() {
+            bail!("input too short");
+        }
+
+        let flags = MessageVariant::from_bytes([buf[0]]);
+
+        match MessageVersion::try_from(flags.version())? {
+            MessageVersion::Legacy => {
+                if buf.len() < 3 {
+                    bail!("input too short");
+                }
+
+                let flags =
+                    LegacyMessageFlags::from_bytes([buf.get_u8(), buf.get_u8(), buf.get_u8()]);
+
+                let (signature, chain_id);
+                (signature, chain_id, buf) = signature_from_compact(buf, flags.v_len())?;
+
+                let nonce;
+                (nonce, buf) = variable_from_compact(buf, flags.nonce_len())?;
+
+                let gas_price;
+                (gas_price, buf) = variable_from_compact(buf, flags.gas_price_len())?;
+
+                let gas_limit;
+                (gas_limit, buf) = variable_from_compact(buf, flags.gas_limit_len())?;
+
+                let action = if flags.is_call() {
+                    let item;
+                    (item, buf) = h160_from_compact(buf)?;
+                    TransactionAction::Call(item)
+                } else {
+                    TransactionAction::Create
+                };
+
+                let value;
+                (value, buf) = variable_from_compact(buf, flags.value_len())?;
+
+                let input = buf[..].to_vec().into();
+
+                Ok(Self {
+                    message: Message::Legacy {
+                        chain_id,
+                        nonce,
+                        gas_price,
+                        gas_limit,
+                        action,
+                        value,
+                        input,
+                    },
+                    signature,
+                })
+            }
+            MessageVersion::EIP2930 => {
+                if buf.len() < 4 {
+                    bail!("input too short");
+                }
+
+                let flags = EIP2930MessageFlags::from_bytes([
+                    buf.get_u8(),
+                    buf.get_u8(),
+                    buf.get_u8(),
+                    buf.get_u8(),
+                ]);
+
+                let (signature, chain_id);
+                (signature, chain_id, buf) = signature_from_compact(buf, flags.v_len())?;
+
+                let chain_id = chain_id.ok_or_else(|| {
+                    format_err!("ChainId is only be optional for legacy transactiosn")
+                })?;
+
+                let nonce;
+                (nonce, buf) = variable_from_compact(buf, flags.nonce_len())?;
+
+                let gas_price;
+                (gas_price, buf) = variable_from_compact(buf, flags.gas_price_len())?;
+
+                let gas_limit;
+                (gas_limit, buf) = variable_from_compact(buf, flags.gas_limit_len())?;
+
+                let action = if flags.is_call() {
+                    let item;
+                    (item, buf) = h160_from_compact(buf)?;
+                    TransactionAction::Call(item)
+                } else {
+                    TransactionAction::Create
+                };
+
+                let value;
+                (value, buf) = variable_from_compact(buf, flags.value_len())?;
+
+                let access_list;
+                (access_list, buf) = access_list_from_compact(buf, flags.access_list_size_len())?;
+
+                let input = buf[..].to_vec().into();
+
+                Ok(Self {
+                    message: Message::EIP2930 {
+                        chain_id,
+                        nonce,
+                        gas_price,
+                        gas_limit,
+                        action,
+                        value,
+                        access_list,
+                        input,
+                    },
+                    signature,
+                })
+            }
+            MessageVersion::EIP1559 => {
+                if buf.len() < 4 {
+                    bail!("input too short");
+                }
+
+                let flags = EIP1559MessageFlags::from_bytes([
+                    buf.get_u8(),
+                    buf.get_u8(),
+                    buf.get_u8(),
+                    buf.get_u8(),
+                ]);
+
+                let (signature, chain_id);
+                (signature, chain_id, buf) = signature_from_compact(buf, flags.v_len())?;
+
+                let chain_id = chain_id.ok_or_else(|| {
+                    format_err!("ChainId is only be optional for legacy transactiosn")
+                })?;
+
+                let nonce;
+                (nonce, buf) = variable_from_compact(buf, flags.nonce_len())?;
+
+                let max_priority_fee_per_gas;
+                (max_priority_fee_per_gas, buf) =
+                    variable_from_compact(buf, flags.max_priority_fee_per_gas_len())?;
+
+                let max_fee_per_gas;
+                (max_fee_per_gas, buf) = variable_from_compact(buf, flags.max_fee_per_gas_len())?;
+
+                let gas_limit;
+                (gas_limit, buf) = variable_from_compact(buf, flags.gas_limit_len())?;
+
+                let action = if flags.is_call() {
+                    let item;
+                    (item, buf) = h160_from_compact(buf)?;
+                    TransactionAction::Call(item)
+                } else {
+                    TransactionAction::Create
+                };
+
+                let value;
+                (value, buf) = variable_from_compact(buf, flags.value_len())?;
+
+                let access_list;
+                (access_list, buf) = access_list_from_compact(buf, flags.access_list_size_len())?;
+
+                let input = buf[..].to_vec().into();
+
+                Ok(Self {
+                    message: Message::EIP1559 {
+                        chain_id,
+                        nonce,
+                        max_priority_fee_per_gas,
+                        max_fee_per_gas,
+                        gas_limit,
+                        action,
+                        value,
+                        access_list,
+                        input,
+                    },
+                    signature,
+                })
+            }
+        }
+    }
 }
 
 impl TrieEncode for MessageWithSignature {
     fn trie_encode(&self, buf: &mut dyn BufMut) {
-        self.encode_inner(buf, true)
+        self.rlp_encode_inner(buf, true)
     }
 }
 
 impl Encodable for MessageWithSignature {
     fn encode(&self, out: &mut dyn BufMut) {
-        self.encode_inner(out, false)
+        self.rlp_encode_inner(out, false)
     }
 }
 
@@ -948,6 +1506,11 @@ mod tests {
         let mut consensus_encoded = BytesMut::new();
         v.trie_encode(&mut consensus_encoded);
         assert_eq!(encoded[standalone_idx..], consensus_encoded);
+
+        let compact_encoded = v.compact_encode();
+        let compact_decoded = MessageWithSignature::compact_decode(&compact_encoded).unwrap();
+
+        assert_eq!(*v, compact_decoded);
     }
 
     #[test]
@@ -976,41 +1539,44 @@ mod tests {
 
     #[test]
     fn transaction_eip2930() {
-        let v =
-            MessageWithSignature {
-                message: Message::EIP2930 {
-                    chain_id: ChainId(5),
-                    nonce: 7,
-                    gas_price: 30_000_000_000_u64.into(),
-                    gas_limit: 5_748_100_u64,
-                    action: TransactionAction::Call(
-                        hex!("811a752c8cd697e3cb27279c330ed1ada745a8d7").into(),
-                    ),
-                    value: 2.as_u256() * 1_000_000_000 * 1_000_000_000,
-                    input: hex!("6ebaf477f83e051589c1188bcc6ddccd").to_vec().into(),
-                    access_list: vec![
-                        AccessListItem {
-                            address: hex!("de0b295669a9fd93d5f28d9ec85e40f4cb697bae").into(),
-                            slots: vec![
-                        hex!("0000000000000000000000000000000000000000000000000000000000000003")
+        let v = MessageWithSignature {
+            message: Message::EIP2930 {
+                chain_id: ChainId(5),
+                nonce: 7,
+                gas_price: 30_000_000_000_u64.into(),
+                gas_limit: 5_748_100_u64,
+                action: TransactionAction::Call(
+                    hex!("811a752c8cd697e3cb27279c330ed1ada745a8d7").into(),
+                ),
+                value: 2.as_u256() * 1_000_000_000 * 1_000_000_000,
+                input: hex!("6ebaf477f83e051589c1188bcc6ddccd").to_vec().into(),
+                access_list: vec![
+                    AccessListItem {
+                        address: hex!("de0b295669a9fd93d5f28d9ec85e40f4cb697bae").into(),
+                        slots: vec![
+                            hex!(
+                                "0000000000000000000000000000000000000000000000000000000000000003"
+                            )
                             .into(),
-                        hex!("0000000000000000000000000000000000000000000000000000000000000007")
+                            hex!(
+                                "0000000000000000000000000000000000000000000000000000000000000007"
+                            )
                             .into(),
-                    ],
-                        },
-                        AccessListItem {
-                            address: hex!("bb9bc244d798123fde783fcc1c72d3bb8c189413").into(),
-                            slots: vec![],
-                        },
-                    ],
-                },
-                signature: MessageSignature::new(
-                    false,
-                    hex!("36b241b061a36a32ab7fe86c7aa9eb592dd59018cd0443adc0903590c16b02b0"),
-                    hex!("5edcc541b4741c5cc6dd347c5ed9577ef293a62787b4510465fadbfe39ee4094"),
-                )
-                .unwrap(),
-            };
+                        ],
+                    },
+                    AccessListItem {
+                        address: hex!("bb9bc244d798123fde783fcc1c72d3bb8c189413").into(),
+                        slots: vec![],
+                    },
+                ],
+            },
+            signature: MessageSignature::new(
+                false,
+                hex!("36b241b061a36a32ab7fe86c7aa9eb592dd59018cd0443adc0903590c16b02b0"),
+                hex!("5edcc541b4741c5cc6dd347c5ed9577ef293a62787b4510465fadbfe39ee4094"),
+            )
+            .unwrap(),
+        };
 
         check_transaction(&v, 2);
     }
