@@ -907,6 +907,10 @@ decl_table!(PruneProgress => StageId => BlockNumber);
 decl_table!(TxSender => BlockNumber => Vec<Address>);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
+decl_table!(Torrents => H160 => Vec<u8>);
+decl_table!(HeaderSnapshot => u64 => H160);
+decl_table!(BodySnapshot => u64 => H160);
+decl_table!(SenderSnapshot => u64 => H160);
 
 pub type DatabaseChart = BTreeMap<&'static str, TableInfo>;
 
@@ -957,6 +961,10 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(TxSender),
             table_entry!(Issuance),
             table_entry!(Version),
+            table_entry!(Torrents),
+            table_entry!(HeaderSnapshot),
+            table_entry!(BodySnapshot),
+            table_entry!(SenderSnapshot),
         ]
         .into_iter()
         .collect(),
