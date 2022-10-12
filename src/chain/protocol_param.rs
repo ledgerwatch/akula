@@ -1,20 +1,8 @@
-// Gas & refund fee schedule—see Appendix G of the Yellow Paper
+// Gas fee schedule—see Appendix G of the Yellow Paper
 // https://ethereum.github.io/yellowpaper/paper.pdf
 pub mod fee {
-
-    pub const G_SLOAD_TANGERINE_WHISTLE: u64 = 200;
-    pub const G_SLOAD_ISTANBUL: u64 = 800;
-
-    pub const WARM_STORAGE_READ_COST: u64 = 100;
-    pub const COLD_SLOAD_COST: u64 = 2100;
     pub const ACCESS_LIST_STORAGE_KEY_COST: u64 = 1900;
     pub const ACCESS_LIST_ADDRESS_COST: u64 = 2400;
-
-    pub const G_SSET: u64 = 20_000;
-    pub const G_SRESET: u64 = 5_000;
-
-    pub const R_SCLEAR: u64 = 15_000;
-    pub const R_SELF_DESTRUCT: u64 = 24_000;
 
     pub const G_CODE_DEPOSIT: u64 = 200;
 

@@ -103,6 +103,7 @@ where
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
+            gas_refund: 0,
             output_data: Bytes::new(),
             create_address: None,
         };
@@ -208,6 +209,7 @@ where
             res.create_address = Some(contract_addr);
         } else {
             self.state.revert_to_snapshot(snapshot);
+            res.gas_refund = 0;
             if res.status_code != StatusCode::Revert {
                 res.gas_left = 0;
             }
@@ -223,6 +225,7 @@ where
             return Ok(Output {
                 status_code: StatusCode::InsufficientBalance,
                 gas_left: message.gas,
+                gas_refund: 0,
                 output_data: Bytes::new(),
                 create_address: None,
             });
@@ -264,6 +267,7 @@ where
             return Ok(Output {
                 status_code: StatusCode::Success,
                 gas_left: message.gas,
+                gas_refund: 0,
                 output_data: Bytes::new(),
                 create_address: None,
             });
@@ -291,6 +295,7 @@ where
                     return Ok(Output {
                         status_code: StatusCode::Success,
                         gas_left: message.gas,
+                        gas_refund: 0,
                         output_data: Bytes::new(),
                         create_address: None,
                     });
@@ -307,6 +312,7 @@ where
                 let mut res = Output {
                     status_code: StatusCode::Success,
                     gas_left: message.gas,
+                    gas_refund: 0,
                     output_data: Bytes::new(),
                     create_address: None,
                 };
@@ -331,6 +337,7 @@ where
 
         if res.status_code != StatusCode::Success {
             self.state.revert_to_snapshot(snapshot);
+            res.gas_refund = 0;
             if res.status_code != StatusCode::Revert {
                 res.gas_left = 0;
             }
@@ -421,79 +428,39 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
         let current_val = self.state.get_current_storage(address, location).unwrap();
 
         if current_val == new_val {
-            StorageStatus::Unchanged
+            StorageStatus::Assigned
         } else {
             self.state.set_storage(address, location, new_val).unwrap();
 
-            let eip1283 = self.block_spec.revision >= Revision::Istanbul
-                || self.block_spec.revision == Revision::Constantinople;
+            // https://eips.ethereum.org/EIPS/eip-1283
+            let original_val = self.state.get_original_storage(address, location).unwrap();
 
-            if !eip1283 {
-                if current_val == 0 {
+            if original_val == current_val {
+                if original_val == 0 {
                     StorageStatus::Added
                 } else if new_val == 0 {
-                    self.state.add_refund(fee::R_SCLEAR);
                     StorageStatus::Deleted
                 } else {
                     StorageStatus::Modified
                 }
-            } else {
-                let sload_cost = {
-                    if self.block_spec.revision >= Revision::Berlin {
-                        fee::WARM_STORAGE_READ_COST
-                    } else if self.block_spec.revision >= Revision::Istanbul {
-                        fee::G_SLOAD_ISTANBUL
-                    } else {
-                        fee::G_SLOAD_TANGERINE_WHISTLE
-                    }
-                };
-
-                let mut sstore_reset_gas = fee::G_SRESET;
-                if self.block_spec.revision >= Revision::Berlin {
-                    sstore_reset_gas -= fee::COLD_SLOAD_COST;
-                }
-
-                // https://eips.ethereum.org/EIPS/eip-1283
-                let original_val = self.state.get_original_storage(address, location).unwrap();
-
-                // https://eips.ethereum.org/EIPS/eip-3529
-                let sstore_clears_refund = if self.block_spec.revision >= Revision::London {
-                    sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
-                } else {
-                    fee::R_SCLEAR
-                };
-
-                if original_val == current_val {
-                    if original_val == 0 {
-                        StorageStatus::Added
-                    } else {
-                        if new_val == 0 {
-                            self.state.add_refund(sstore_clears_refund);
-                        }
-                        StorageStatus::Modified
-                    }
-                } else {
-                    if original_val != 0 {
-                        if current_val == 0 {
-                            self.state.subtract_refund(sstore_clears_refund);
-                        }
-                        if new_val == 0 {
-                            self.state.add_refund(sstore_clears_refund);
-                        }
-                    }
+            } else if original_val != 0 {
+                if current_val == 0 {
                     if original_val == new_val {
-                        let refund = {
-                            if original_val == 0 {
-                                fee::G_SSET - sload_cost
-                            } else {
-                                sstore_reset_gas - sload_cost
-                            }
-                        };
-
-                        self.state.add_refund(refund);
+                        StorageStatus::DeletedRestored
+                    } else {
+                        StorageStatus::DeletedAdded
                     }
-                    StorageStatus::ModifiedAgain
+                } else if new_val == 0 {
+                    StorageStatus::ModifiedDeleted
+                } else if original_val == new_val {
+                    StorageStatus::ModifiedRestored
+                } else {
+                    StorageStatus::Assigned
                 }
+            } else if original_val == new_val {
+                StorageStatus::AddedDeleted
+            } else {
+                StorageStatus::Assigned
             }
         }
     }

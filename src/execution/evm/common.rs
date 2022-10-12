@@ -179,6 +179,8 @@ pub struct Output {
     pub status_code: StatusCode,
     /// How much gas was left after execution
     pub gas_left: i64,
+    /// How much is to be refunded
+    pub gas_refund: i64,
     /// Output data returned.
     pub output_data: Bytes,
     /// Contract creation address.

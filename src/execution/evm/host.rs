@@ -23,16 +23,59 @@ impl Default for AccessStatus {
 
 #[derive(Clone, Copy, Debug)]
 pub enum StorageStatus {
-    /// The value of a storage item has been left unchanged: 0 -> 0 and X -> X.
-    Unchanged,
-    /// The value of a storage item has been modified: X -> Y.
-    Modified,
-    /// A storage item has been modified after being modified before: X -> Y -> Z.
-    ModifiedAgain,
-    /// A new storage item has been added: 0 -> X.
+    /// The new/same value is assigned to the storage item without affecting the cost structure.
+    ///
+    /// The storage value item is either:
+    /// - left unchanged (c == v) or
+    /// - the dirty value (o != c) is modified again (c != v).
+    /// This is the group of cases related to minimal gas cost of only accessing warm storage.
+    /// 0|X   -> 0 -> 0 (current value unchanged)
+    /// 0|X|Y -> Y -> Y (current value unchanged)
+    /// 0|X   -> Y -> Z (modified previously added/modified value)
+    ///
+    /// This is "catch all remaining" status. I.e. if all other statuses are correctly matched
+    /// this status should be assigned to all remaining cases.
+    Assigned,
+
+    /// A new storage item is added by changing
+    /// the current clean zero to a nonzero value.
+    /// 0 -> 0 -> Z
     Added,
-    /// A storage item has been deleted: X -> 0.
+
+    /// A storage item is deleted by changing
+    /// the current clean nonzero to the zero value.
+    /// X -> X -> 0
     Deleted,
+
+    /// A storage item is modified by changing
+    /// the current clean nonzero to other nonzero value.
+    /// X -> X -> Z
+    Modified,
+
+    /// A storage item is added by changing
+    /// the current dirty zero to a nonzero value other than the original value.
+    /// X -> 0 -> Z
+    DeletedAdded,
+
+    /// A storage item is deleted by changing
+    /// the current dirty nonzero to the zero value and the original value is not zero.
+    /// X -> Y -> 0
+    ModifiedDeleted,
+
+    /// A storage item is added by changing
+    /// the current dirty zero to the original value.
+    /// X -> 0 -> X
+    DeletedRestored,
+
+    /// A storage item is deleted by changing
+    /// the current dirty nonzero to the original zero value.
+    /// 0 -> Y -> 0
+    AddedDeleted,
+
+    /// A storage item is modified by changing
+    /// the current dirty nonzero to the original nonzero value other than the current value.
+    /// X -> Y -> X
+    ModifiedRestored,
 }
 
 /// The transaction and block data for execution.
@@ -97,7 +140,7 @@ pub trait Host {
     /// Returns `Ok(0)` if offset is invalid.
     fn copy_code(&mut self, address: Address, offset: usize, buffer: &mut [u8]) -> usize;
     /// Self-destruct account.
-    fn selfdestruct(&mut self, address: Address, beneficiary: Address);
+    fn selfdestruct(&mut self, address: Address, beneficiary: Address) -> bool;
     /// Call to another account.
     fn call(&mut self, msg: Call) -> Output;
     /// Retrieve transaction context.
