@@ -297,13 +297,22 @@ fn main() -> anyhow::Result<()> {
 
                 let tmpconfig = tempfile::tempdir().unwrap();
                 let logfile = opt.datadir.0.join("transmission.log");
-                std::fs::remove_file(&logfile)?;
+                let _ = std::fs::remove_file(&logfile);
+                std::fs::write(tmpconfig.path().join("settings.json").to_string_lossy().into_owned(), serde_json::json!({
+                    "encryption": 0,
+                    "lpd-enabled": true,
+                    "download-queue-enabled": false,
+                    "peer-limit-global": 2500,
+                    "peer-limit-per-torrent": 25,
+                    "rename-partial-files": false,
+                }).to_string())?;
                 let btdaemon = Command::new(opt.transmission_daemon_path)
                     .args(&[
                         "-f",
                         "--no-auth",
                         "-e",
                         &logfile.to_string_lossy(),
+                        "--log-debug",
                         "--config-dir",
                         &tmpconfig.path().to_string_lossy(),
                         "--port",
@@ -373,6 +382,7 @@ fn main() -> anyhow::Result<()> {
                 tokio::spawn({
                     let snapshot_dir = snapshot_dir.clone();
                     async move {
+                        let mut client = TransClient::new(transmission_daemon_addr.clone());
                         while let (Some((info_hash, torrent_data, id_sender, status_to_update)), _, _) = futures::future::select_all([Box::pin(torrent_rx.recv()) as BoxFuture<'_, Option<(H160, TorrentData, Option<OneshotSender<i64>>, Option<Weak<Mutex<Option<transmission_rpc::types::Torrent>>>>)>>, Box::pin(futures::FutureExt::map(stage_snapshot_rx.recv(), |opt| {
                             opt.map(|(info_hash, torrent_data)| (info_hash, TorrentData::Downloaded(torrent_data), None, None))
                         }))]).await {
@@ -396,7 +406,7 @@ fn main() -> anyhow::Result<()> {
 
                             debug!("{torrent_add_args:?}");
 
-                            let rsp = TransClient::new(transmission_daemon_addr.clone())
+                            let rsp = client
                                 .torrent_add(torrent_add_args)
                                 .await
                                 .unwrap();
@@ -404,7 +414,7 @@ fn main() -> anyhow::Result<()> {
                             assert!(rsp.is_ok());
 
                             if let TorrentAddedOrDuplicate::TorrentAdded(handle) = rsp.arguments {
-                                assert!(TransClient::new(transmission_daemon_addr.clone())
+                                client
                                     .torrent_set(
                                         TorrentSetArgs {
                                             tracker_add: Some(
@@ -415,8 +425,7 @@ fn main() -> anyhow::Result<()> {
                                         None
                                     )
                                     .await
-                                    .unwrap()
-                                    .is_ok());
+                                    .unwrap();
 
                                 info!("Started torrent: {:?}: {:?}", handle.id, handle.name);
 
@@ -562,6 +571,9 @@ fn main() -> anyhow::Result<()> {
                     // Wait for all snapshot metadata to be saved
                     while let Some((info_hash, data)) = new_torrent_data.next().await {
                         tx.set(tables::Torrents, info_hash, data)?;
+
+                        tx.commit()?;
+                        tx = db.begin_mutable()?;
                         info!("Downloaded metadata: {}/{snapshots_count}", snapshots_count - new_torrent_data.len());
                     }
                     tx.commit()?;
