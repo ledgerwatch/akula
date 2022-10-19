@@ -277,6 +277,64 @@ where
     }
 }
 
+const fn stride(
+    base_stride: NonZeroUsize,
+    max_snapshots_per_level: NonZeroUsize,
+    level: u8,
+) -> NonZeroUsize {
+    unsafe {
+        NonZeroUsize::new_unchecked(
+            base_stride.get() * (max_snapshots_per_level.get().pow(level as u32)),
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SnapshotPos {
+    level: usize,
+    level_pos: usize,
+}
+
+fn snapshot_pos(
+    base_stride: NonZeroUsize,
+    max_snapshots_per_level: NonZeroUsize,
+    max_snapshotted_block: NonZeroUsize,
+    snapshot_level_lens: &[usize],
+    mut needle: usize,
+) -> Option<SnapshotPos> {
+    if needle > max_snapshotted_block.get() || snapshot_level_lens.is_empty() {
+        return None;
+    }
+
+    for current_level in (0..snapshot_level_lens.len() - 1).rev() {
+        let current_level_len = snapshot_level_lens[current_level];
+
+        let current_level_stride =
+            stride(base_stride, max_snapshots_per_level, current_level as u8);
+        for idx in 0..current_level_len {
+            // Subtract until we overtake the needle
+            if let Some(new_needle) = needle.checked_sub(current_level_stride.get()) {
+                needle = new_needle;
+            } else {
+                // Hit
+                return Some(if let Some(final_idx) = idx.checked_sub(1) {
+                    SnapshotPos {
+                        level: current_level,
+                        level_pos: final_idx,
+                    }
+                } else {
+                    SnapshotPos {
+                        level: current_level + 1,
+                        level_pos: snapshot_level_lens[current_level + 1] - 1,
+                    }
+                });
+            }
+        }
+    }
+
+    unreachable!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,4 +436,29 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn compute_stride() {
+        for (base_stride, max_snapshots_per_level, level, expected_stride) in std::iter::empty()
+            .chain(
+                [(0, 1000), (1, 10000), (2, 100000), (3, 1000000)]
+                    .iter()
+                    .map(|&(level, expected_stride)| (1000, 10, level, expected_stride)),
+            )
+        {
+            assert_eq!(
+                stride(
+                    NonZeroUsize::new(base_stride).unwrap(),
+                    NonZeroUsize::new(max_snapshots_per_level).unwrap(),
+                    level
+                ),
+                NonZeroUsize::new(expected_stride).unwrap()
+            );
+        }
+    }
+
+    // #[test]
+    // fn compute_snapshot_idx() {
+    //     assert_eq!(snapshot_idx());
+    // }
 }
