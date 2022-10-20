@@ -298,17 +298,15 @@ struct SnapshotPos {
 fn snapshot_pos(
     base_stride: NonZeroUsize,
     max_snapshots_per_level: NonZeroUsize,
-    max_snapshotted_block: NonZeroUsize,
     snapshot_level_lens: &[usize],
     mut needle: usize,
 ) -> Option<SnapshotPos> {
-    if needle > max_snapshotted_block.get() || snapshot_level_lens.is_empty() {
+    if snapshot_level_lens.is_empty() {
         return None;
     }
 
-    for current_level in (0..snapshot_level_lens.len() - 1).rev() {
-        let current_level_len = snapshot_level_lens[current_level];
-
+    for (current_level, current_level_len) in snapshot_level_lens.iter().copied().enumerate().rev()
+    {
         let current_level_stride =
             stride(base_stride, max_snapshots_per_level, current_level as u8);
         for idx in 0..current_level_len {
@@ -332,7 +330,7 @@ fn snapshot_pos(
         }
     }
 
-    unreachable!()
+    None
 }
 
 #[cfg(test)]
@@ -457,8 +455,24 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn compute_snapshot_idx() {
-    //     assert_eq!(snapshot_idx());
-    // }
+    #[test]
+    fn compute_snapshot_idx() {
+        for (base_stride, max_snapshots_per_level, snapshot_level_lens, needle, level, level_pos) in
+            std::iter::empty().chain([(4101000, 3, 3), (1, 3, 0)].iter().map(
+                |&(needle, level, level_pos)| {
+                    (1000, 10, vec![4, 1, 0, 5], needle, level, level_pos)
+                },
+            ))
+        {
+            assert_eq!(
+                snapshot_pos(
+                    NonZeroUsize::new(base_stride).unwrap(),
+                    NonZeroUsize::new(max_snapshots_per_level).unwrap(),
+                    &snapshot_level_lens,
+                    needle
+                ),
+                Some(SnapshotPos { level, level_pos })
+            );
+        }
+    }
 }
