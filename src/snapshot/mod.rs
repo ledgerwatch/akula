@@ -277,6 +277,38 @@ where
     }
 }
 
+trait SnapshotParams {
+    const BASE_STRIDE: NonZeroUsize;
+    const STRIDE_FACTOR: NonZeroUsize;
+    const SNAPSHOTS_PER_LEVEL: NonZeroUsize;
+}
+
+struct AssertStride<T>
+where
+    T: SnapshotParams,
+{
+    _marker: PhantomData<T>,
+}
+
+impl<T> AssertStride<T>
+where
+    T: SnapshotParams,
+{
+    const ASSERT: () = assert!(
+        ((T::BASE_STRIDE.get() * T::STRIDE_FACTOR.get()) % T::SNAPSHOTS_PER_LEVEL.get()) == 0
+    );
+}
+
+const fn snapshot_stride<T: SnapshotParams>(level: u8) -> NonZeroUsize {
+    let _ = AssertStride::<T>::ASSERT;
+
+    unsafe {
+        NonZeroUsize::new_unchecked(
+            T::BASE_STRIDE.get() * (T::STRIDE_FACTOR.get().pow(level as u32)),
+        )
+    }
+}
+
 const fn stride(
     base_stride: NonZeroUsize,
     max_snapshots_per_level: NonZeroUsize,
@@ -287,6 +319,23 @@ const fn stride(
             base_stride.get() * (max_snapshots_per_level.get().pow(level as u32)),
         )
     }
+}
+
+fn max_block(base_stride: NonZeroUsize, snapshot_level_lens: &[usize]) -> Option<BlockNumber> {
+    let mut max_block = -1_i64;
+
+    for (current_level, current_level_len) in snapshot_level_lens.iter().copied().enumerate().rev()
+    {
+        max_block += (current_level_len
+            * stride(
+                base_stride,
+                unsafe { NonZeroUsize::new_unchecked(10) },
+                current_level as u8,
+            )
+            .get()) as i64;
+    }
+
+    todo!()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,18 +364,37 @@ fn snapshot_pos(
                 needle = new_needle;
             } else {
                 // Hit
-                return Some(if let Some(final_idx) = idx.checked_sub(1) {
-                    SnapshotPos {
-                        level: current_level,
-                        level_pos: final_idx,
-                    }
-                } else {
-                    SnapshotPos {
-                        level: current_level + 1,
-                        level_pos: snapshot_level_lens[current_level + 1] - 1,
-                    }
+                return Some(SnapshotPos {
+                    level: current_level,
+                    level_pos: idx,
                 });
             }
+        }
+    }
+
+    None
+}
+
+fn snapshot_lens<const MIN_SNAPSHOT_POWER: usize>(
+    num_snapshots: usize,
+) -> impl Iterator<Item = usize> {
+    (MIN_SNAPSHOT_POWER..MIN_SNAPSHOT_POWER + num_snapshots)
+        .rev()
+        .map(|power| 2_usize.pow(power as u32))
+}
+
+fn snapshot_pos2<const MIN_SNAPSHOT: usize>(
+    num_snapshots: usize,
+    mut needle: usize,
+) -> Option<usize> {
+    for (i, power) in (MIN_SNAPSHOT..MIN_SNAPSHOT + num_snapshots)
+        .rev()
+        .enumerate()
+    {
+        if let Some(new_needle) = needle.checked_sub(2_usize.pow(power as u32)) {
+            needle = new_needle
+        } else {
+            return Some(i);
         }
     }
 
@@ -458,11 +526,29 @@ mod tests {
     #[test]
     fn compute_snapshot_idx() {
         for (base_stride, max_snapshots_per_level, snapshot_level_lens, needle, level, level_pos) in
-            std::iter::empty().chain([(4101000, 3, 3), (1, 3, 0)].iter().map(
-                |&(needle, level, level_pos)| {
+            std::iter::empty().chain(
+                [
+                    (0, 3, 0),
+                    (1, 3, 0),
+                    (999_999, 3, 0),
+                    (1_000_000, 3, 1),
+                    (1_000_001, 3, 1),
+                    (1_999_999, 3, 1),
+                    (4_101_042, 3, 4),
+                    (4_999_999, 3, 4),
+                    (5_000_000, 1, 0),
+                    (5_100_000, 0, 0),
+                ]
+                .iter()
+                .map(|&(needle, level, level_pos)| {
+                    //               0           |           1           |           2           |           3           |           4
+                    // 0 | 5_100_000 - 5_100_999 | 5_101_000 - 5_101_999 | 5_102_000 - 5_102_999 | 5_103_000 - 5_103_999
+                    // 1 | 5_000_000 - 5_000_999
+                    // 2 |
+                    // 3 | 0         - 999_999   | 1_000_000 - 1_999_999 | 2_000_000 - 2_999_999 | 3_000_000 - 3_999_999 | 4_000_000 - 4_999_999
                     (1000, 10, vec![4, 1, 0, 5], needle, level, level_pos)
-                },
-            ))
+                }),
+            )
         {
             assert_eq!(
                 snapshot_pos(
@@ -474,5 +560,18 @@ mod tests {
                 Some(SnapshotPos { level, level_pos })
             );
         }
+    }
+
+    #[test]
+    fn compute_snapshot_lens() {
+        assert_eq!(
+            snapshot_lens::<10>(4).collect::<Vec<_>>(),
+            vec![
+                2_usize.pow(13),
+                2_usize.pow(12),
+                2_usize.pow(11),
+                2_usize.pow(10),
+            ]
+        );
     }
 }

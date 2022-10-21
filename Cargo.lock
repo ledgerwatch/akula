@@ -141,6 +141,7 @@ dependencies = [
  "shellexpand",
  "signal-hook",
  "snap",
+ "static_assertions",
  "string",
  "strum",
  "strum_macros",
