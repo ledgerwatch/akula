@@ -283,25 +283,7 @@ trait SnapshotParams {
     const SNAPSHOTS_PER_LEVEL: NonZeroUsize;
 }
 
-struct AssertStride<T>
-where
-    T: SnapshotParams,
-{
-    _marker: PhantomData<T>,
-}
-
-impl<T> AssertStride<T>
-where
-    T: SnapshotParams,
-{
-    const ASSERT: () = assert!(
-        ((T::BASE_STRIDE.get() * T::STRIDE_FACTOR.get()) % T::SNAPSHOTS_PER_LEVEL.get()) == 0
-    );
-}
-
 const fn snapshot_stride<T: SnapshotParams>(level: u8) -> NonZeroUsize {
-    let _ = AssertStride::<T>::ASSERT;
-
     unsafe {
         NonZeroUsize::new_unchecked(
             T::BASE_STRIDE.get() * (T::STRIDE_FACTOR.get().pow(level as u32)),
@@ -319,23 +301,6 @@ const fn stride(
             base_stride.get() * (max_snapshots_per_level.get().pow(level as u32)),
         )
     }
-}
-
-fn max_block(base_stride: NonZeroUsize, snapshot_level_lens: &[usize]) -> Option<BlockNumber> {
-    let mut max_block = -1_i64;
-
-    for (current_level, current_level_len) in snapshot_level_lens.iter().copied().enumerate().rev()
-    {
-        max_block += (current_level_len
-            * stride(
-                base_stride,
-                unsafe { NonZeroUsize::new_unchecked(10) },
-                current_level as u8,
-            )
-            .get()) as i64;
-    }
-
-    todo!()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -387,11 +352,8 @@ fn snapshot_pos2<const MIN_SNAPSHOT: usize>(
     num_snapshots: usize,
     mut needle: usize,
 ) -> Option<usize> {
-    for (i, power) in (MIN_SNAPSHOT..MIN_SNAPSHOT + num_snapshots)
-        .rev()
-        .enumerate()
-    {
-        if let Some(new_needle) = needle.checked_sub(2_usize.pow(power as u32)) {
+    for (i, len) in snapshot_lens::<MIN_SNAPSHOT>(num_snapshots).enumerate() {
+        if let Some(new_needle) = needle.checked_sub(len) {
             needle = new_needle
         } else {
             return Some(i);
