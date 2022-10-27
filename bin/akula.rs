@@ -279,20 +279,18 @@ fn main() -> anyhow::Result<()> {
                 let mut config = iroh_one::config::Config::default();
                 config.store.path = opt.datadir.snapshotdb();
 
-                let (_store_rpc, _p2p_rpc) = {
-                    let (store_recv, store_sender) = iroh_rpc_types::Addr::new_mem();
-                    config.rpc_client.store_addr = Some(store_sender);
-                    let store_rpc = iroh_one::mem_store::start(store_recv, config.clone().store).await?;
+                let (store_recv, store_sender) = iroh_rpc_types::Addr::new_mem();
+                config.rpc_client.store_addr = Some(store_sender);
+                let _store_rpc = iroh_one::mem_store::start(store_recv, config.clone().store).await?;
 
-                    let (p2p_recv, p2p_sender) = iroh_rpc_types::Addr::new_mem();
-                    config.rpc_client.p2p_addr = Some(p2p_sender);
-                    let p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.clone().p2p).await?;
-                    (store_rpc, p2p_rpc)
-                };
+                let (p2p_recv, p2p_sender) = iroh_rpc_types::Addr::new_mem();
+                config.rpc_client.p2p_addr = Some(p2p_sender);
+                let _p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.clone().p2p).await?;
 
+                let (gateway_recv, gateway_sender) = iroh_rpc_types::Addr::new_mem();
+
+                config.rpc_client.gateway_addr = Some(gateway_sender);
                 config.synchronize_subconfigs();
-
-                let (gateway_recv, _gateway_sender) = iroh_rpc_types::Addr::new_mem();
 
                 let content_loader = iroh_resolver::racing::RacingLoader::new(
                     iroh_rpc_client::Client::new(config.rpc_client.clone()).await?,
@@ -306,6 +304,8 @@ fn main() -> anyhow::Result<()> {
                 .await?;
 
                 let _handler = iroh_gateway::core::Core::new_with_state(gateway_recv, Arc::clone(&shared_state)).await?;
+
+                let rpc_client = iroh_rpc_client::Client::new(config.rpc_client.clone()).await?;
 
                 // Start Transmission
 
