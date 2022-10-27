@@ -115,6 +115,7 @@ dependencies = [
  "bytes",
  "bytes-literal",
  "bytesize",
+ "cid",
  "cidr",
  "cipher 0.4.3",
  "clap 4.0.23",
@@ -988,6 +989,7 @@ dependencies = [
  "multibase",
  "multihash",
  "serde",
+ "serde_bytes",
  "unsigned-varint",
 ]
 
@@ -6201,6 +6203,15 @@ name = "serde-big-array"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd31f59f6fe2b0c055371bb2f16d7f0aa7d8881676c04a55b1596d1a17cd10a4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfc50e8183eeeb6178dcb167ae34a8051d63535023ae38b5d8d12beae193d37b"
 dependencies = [
  "serde",
 ]

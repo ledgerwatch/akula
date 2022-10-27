@@ -306,6 +306,7 @@ fn main() -> anyhow::Result<()> {
                 let _handler = iroh_gateway::core::Core::new_with_state(gateway_recv, Arc::clone(&shared_state)).await?;
 
                 let rpc_client = iroh_rpc_client::Client::new(config.rpc_client.clone()).await?;
+                let _ = rpc_client;
 
                 // Start Transmission
 
