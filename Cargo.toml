@@ -75,6 +75,11 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
   "tokio1",
 ] }
 impls = "1"
+iroh-gateway = { git = "https://github.com/vorot93/iroh", branch = "libmdbx" }
+iroh-one = { git = "https://github.com/vorot93/iroh", branch = "libmdbx" }
+iroh-resolver = { git = "https://github.com/vorot93/iroh", branch = "libmdbx" }
+iroh-rpc-client = { git = "https://github.com/vorot93/iroh", branch = "libmdbx" }
+iroh-rpc-types = { git = "https://github.com/vorot93/iroh", branch = "libmdbx" }
 itertools = "0.10"
 jsonrpsee = { version = "0.16", features = ["server"] }
 lava_torrent = "0.8"
@@ -168,6 +173,8 @@ triehash = "0.8"
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls-3" }
+libmdbx = { git = "https://github.com/vorot93/libmdbx-rs" }
+libp2p = { git = "https://github.com/dignifiedquire/rust-libp2p", branch = "iroh-0-50" }
 transmission-rpc = { git = "https://github.com/j0rsa/transmission-rpc" }
 
 [[bin]]

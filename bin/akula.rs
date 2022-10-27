@@ -275,6 +275,40 @@ fn main() -> anyhow::Result<()> {
 
                 info!("Current network: {}", chainspec.name);
 
+                // Start iroh
+                let mut config = iroh_one::config::Config::default();
+                config.store.path = opt.datadir.snapshotdb();
+
+                let (_store_rpc, _p2p_rpc) = {
+                    let (store_recv, store_sender) = iroh_rpc_types::Addr::new_mem();
+                    config.rpc_client.store_addr = Some(store_sender);
+                    let store_rpc = iroh_one::mem_store::start(store_recv, config.clone().store).await?;
+
+                    let (p2p_recv, p2p_sender) = iroh_rpc_types::Addr::new_mem();
+                    config.rpc_client.p2p_addr = Some(p2p_sender);
+                    let p2p_rpc = iroh_one::mem_p2p::start(p2p_recv, config.clone().p2p).await?;
+                    (store_rpc, p2p_rpc)
+                };
+
+                config.synchronize_subconfigs();
+
+                let (gateway_recv, _gateway_sender) = iroh_rpc_types::Addr::new_mem();
+
+                let content_loader = iroh_resolver::racing::RacingLoader::new(
+                    iroh_rpc_client::Client::new(config.rpc_client.clone()).await?,
+                    config.gateway.http_resolvers.clone().unwrap_or_default(),
+                );
+                let shared_state = iroh_gateway::core::Core::make_state(
+                    Arc::new(config.clone()),
+                    Arc::new(None),
+                    content_loader,
+                )
+                .await?;
+
+                let _handler = iroh_gateway::core::Core::new_with_state(gateway_recv, Arc::clone(&shared_state)).await?;
+
+                // Start Transmission
+
                 let transmission_daemon_addr: Url = format!(
                     "http://localhost:{}/transmission/rpc",
                     opt.transmission_daemon_port
