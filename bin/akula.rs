@@ -300,7 +300,7 @@ fn main() -> anyhow::Result<()> {
                 let _ = std::fs::remove_file(&logfile);
                 std::fs::write(tmpconfig.path().join("settings.json").to_string_lossy().into_owned(), serde_json::json!({
                     "encryption": 0,
-                    "lpd-enabled": true,
+                    "lpd-enabled": false,
                     "download-queue-enabled": false,
                     "peer-limit-global": 2500,
                     "peer-limit-per-torrent": 25,
