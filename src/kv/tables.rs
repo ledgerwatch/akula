@@ -4,6 +4,7 @@ use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
 use bytes::Bytes;
+use cid::Cid;
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
 use modular_bitfield::prelude::*;
@@ -874,6 +875,20 @@ impl TableDecode for CallTraceSetEntry {
     }
 }
 
+impl TableEncode for Cid {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        self.to_bytes()
+    }
+}
+
+impl TableDecode for Cid {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self::read_bytes(b)?)
+    }
+}
+
 decl_table!(Account => Address => crate::models::Account);
 decl_table!(Storage => Address => (H256, U256));
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
@@ -908,9 +923,9 @@ decl_table!(TxSender => BlockNumber => Vec<Address>);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
 decl_table!(Torrents => H160 => Vec<u8>);
-decl_table!(HeaderSnapshot => u64 => H160);
-decl_table!(BodySnapshot => u64 => H160);
-decl_table!(SenderSnapshot => u64 => H160);
+decl_table!(HeaderSnapshot => u64 => Cid);
+decl_table!(BodySnapshot => u64 => Cid);
+decl_table!(SenderSnapshot => u64 => Cid);
 
 pub type DatabaseChart = BTreeMap<&'static str, TableInfo>;
 

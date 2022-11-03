@@ -6,6 +6,7 @@ use crate::{
     models::*,
 };
 use anyhow::{bail, format_err};
+use cid::Cid;
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write},
@@ -26,7 +27,7 @@ pub trait SnapshotVersion {
 
 pub trait SnapshotObject: TableObject {
     const ID: &'static str;
-    type Table: Table<Key = u64, Value = H160, SeekKey = u64>;
+    type Table: Table<Key = u64, Value = Cid, SeekKey = u64>;
 
     fn db_table() -> Self::Table;
 }

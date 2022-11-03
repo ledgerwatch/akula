@@ -401,7 +401,7 @@ where
     U64::deserialize(deserializer).map(|num| num.as_u64())
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshots {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub headers: Vec<Cid>,
@@ -409,16 +409,6 @@ pub struct Snapshots {
     pub bodies: Vec<Cid>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub senders: Vec<Cid>,
-}
-
-impl Default for Snapshots {
-    fn default() -> Self {
-        Self {
-            headers: vec![],
-            bodies: vec![],
-            senders: vec![],
-        }
-    }
 }
 
 #[cfg(test)]

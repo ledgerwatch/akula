@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
+use cid::Cid;
 use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex as AsyncMutex};
 use tracing::*;
@@ -274,7 +275,7 @@ where
 async fn execute_snapshot<Version, T, IT, E>(
     snapshotter: &mut Snapshotter<Version, T>,
     tx: &MdbxTransaction<'_, RW, E>,
-    bt_sender: &mut Sender<(H160, Vec<u8>)>,
+    bt_sender: &mut Sender<(Cid, Vec<u8>)>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
 ) -> anyhow::Result<()>
