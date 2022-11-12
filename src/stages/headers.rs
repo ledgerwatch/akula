@@ -357,7 +357,7 @@ impl HeaderDownload {
                 let timeout = tokio::time::sleep(Duration::from_secs(5));
                 tokio::pin!(timeout);
 
-                let headers = loop {
+                let received = loop {
                     tokio::select! {
                         msg = stream.next() => {
                             if let Some(msg) = msg {
@@ -366,7 +366,7 @@ impl HeaderDownload {
                                         if sent_request_id == request_id && !headers.is_empty() {
                                             info!("Received {} headers from peer {}/{}", headers.len(), msg.sentry_id, msg.peer_id);
 
-                                            break Some(headers);
+                                            break Some((msg.peer_id, headers));
                                         }
                                     }
                                 }
@@ -379,7 +379,7 @@ impl HeaderDownload {
                     }
                 };
 
-                if let Some(mut headers) = headers {
+                if let Some((peer_id, mut headers)) = received {
                     headers.sort_unstable_by_key(|h| h.number);
 
                     let num_headers = headers.len();
@@ -438,6 +438,11 @@ impl HeaderDownload {
                         "Buffered {} (+{num_headers}) headers",
                         buffered_headers.len()
                     );
+
+                    if u64::try_from(buffered_headers.len()).unwrap() < limit {
+                        debug!("Penalizing bad peer {peer_id:?} who sent us less headers");
+                        self.node.penalize_peer(peer_id).await;
+                    }
                 } else {
                     success = false;
                 }
