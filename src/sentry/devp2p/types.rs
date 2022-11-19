@@ -142,7 +142,7 @@ impl CapabilityServer for () {
     }
 }
 
-#[derive(Clone, Educe)]
+#[derive(Clone, Educe, PartialEq, Eq)]
 #[educe(Debug)]
 pub struct Message {
     pub id: usize,

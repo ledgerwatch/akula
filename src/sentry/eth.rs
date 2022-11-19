@@ -11,7 +11,7 @@ pub fn capability_name() -> CapabilityName {
     CapabilityName(ArrayString::from("eth").unwrap())
 }
 
-#[derive(Clone, Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]
+#[derive(Clone, Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen, PartialEq, Eq)]
 pub struct StatusMessage {
     pub protocol_version: usize,
     pub network_id: u64,

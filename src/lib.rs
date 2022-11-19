@@ -11,12 +11,15 @@
     never_type,
     poll_ready,
     slice_swap_unchecked,
-    step_trait
+    step_trait,
+    const_option,
+    ip
 )]
 #![recursion_limit = "256"]
 #![allow(
     dead_code,
     incomplete_features,
+    deprecated,
     clippy::mutable_key_type,
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -34,6 +37,7 @@ pub mod crypto;
 pub mod etl;
 pub mod execution;
 pub mod kv;
+pub mod libp2p_sentry;
 pub mod models;
 pub mod p2p;
 pub mod res;

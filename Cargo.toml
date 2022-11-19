@@ -137,6 +137,21 @@ hashlink = "0.8.0"
 hashbrown = { version = "0.13", features = ["inline-more", "nightly"] }
 dashmap = "5.3"
 public-ip = "0.2.2"
+libp2p = { version = "0.49", features = [
+  "websocket",
+  "identify",
+  "request-response",
+  "mplex",
+  "yamux",
+  "noise",
+  "dns-tokio",
+  "tcp-tokio",
+  "plaintext",
+  "secp256k1",
+  "kad",
+  "ping",
+] }
+futures-timer = "3.0.2"
 
 [features]
 default = []

@@ -1,3 +1,4 @@
 /target
+rustfmt.toml
 .idea
 .DS_Store
