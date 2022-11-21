@@ -146,7 +146,35 @@ where
                     };
 
                     let mut mem = EvmMemory::new();
+
+                    let mut filtered_blocks = HashSet::new();
+                    for address in addresses.iter().flatten() {
+                        for block in txn
+                            .cursor(tables::LogAddressIndex)?
+                            .walk_chunks(*address, Some(BlockNumber(*block_range.start())))
+                        {
+                            filtered_blocks.insert(block?);
+                        }
+                    }
+
+                    for topic_set in topics.iter().flatten() {
+                        for topic in topic_set.iter().flatten() {
+                            for block in txn
+                                .cursor(tables::LogTopicIndex)?
+                                .walk_chunks(*topic, Some(BlockNumber(*block_range.start())))
+                            {
+                                filtered_blocks.insert(block?);
+                            }
+                        }
+                    }
+
                     for block_number in block_range {
+                        if !filtered_blocks.is_empty()
+                            && !filtered_blocks.contains(&BlockNumber(block_number))
+                        {
+                            continue;
+                        }
+
                         let block_number = BlockNumber(block_number);
                         let block_hash =
                             crate::accessors::chain::canonical_hash::read(&txn, block_number)?
