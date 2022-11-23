@@ -411,16 +411,16 @@ pub async fn run(
     network_params: P2PParams,
 ) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
     let secret_key = {
-        let secret_key_path = db_path.nodekey();
+        let secret_key_path = db_path.devp2p();
         let secret_key;
         if let Some(node_key) = opts.node_key {
             secret_key = SecretKey::from_slice(&hex::decode(node_key)?)?;
             info!("Loaded node key from config");
-            std::fs::write(&secret_key_path, &hex::encode(secret_key.secret_bytes()))?;
+            std::fs::write(&secret_key_path, hex::encode(secret_key.secret_bytes()))?;
         } else {
             match std::fs::read_to_string(&secret_key_path) {
                 Ok(nodekey) => {
-                    secret_key = SecretKey::from_slice(&hex::decode(&nodekey)?)?;
+                    secret_key = SecretKey::from_slice(&hex::decode(nodekey)?)?;
                     info!(
                         "Loaded node key: {}",
                         hex::encode(secret_key.secret_bytes())
@@ -433,7 +433,7 @@ pub async fn run(
                             "Generated new node key: {}",
                             hex::encode(secret_key.secret_bytes())
                         );
-                        std::fs::write(&secret_key_path, &hex::encode(secret_key.secret_bytes()))?;
+                        std::fs::write(&secret_key_path, hex::encode(secret_key.secret_bytes()))?;
                     }
                     _ => return Err(e.into()),
                 },
@@ -461,7 +461,7 @@ pub async fn run(
 
     let bootnodes = if opts.discv4_bootnodes.is_empty() {
         network_params
-            .bootnodes
+            .bootnodes_devp2p
             .iter()
             .map(|b| Discv4NR(b.parse().unwrap()))
             .collect::<Vec<_>>()

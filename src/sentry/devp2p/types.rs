@@ -1,12 +1,17 @@
-use crate::sentry::devp2p::{peer::DisconnectReason, util::*};
+use crate::sentry::{
+    devp2p::{peer::DisconnectReason, util::*},
+    eth::EthMessageId,
+};
 use arrayvec::ArrayString;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use educe::Educe;
+use ethereum_interfaces::sentry::{MessageId as ProtoMessageId, OutboundMessageData};
 pub use ethereum_types::H512 as PeerId;
 use fastrlp::*;
+use num_traits::ToPrimitive;
 use std::{collections::HashMap, fmt::Debug, future::pending, net::SocketAddr, str::FromStr};
 
 /// Record that specifies information necessary to connect to RLPx node
@@ -148,4 +153,21 @@ pub struct Message {
     pub id: usize,
     #[educe(Debug(method = "hex_debug"))]
     pub data: Bytes,
+}
+
+impl TryFrom<OutboundMessageData> for Message {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        OutboundMessageData { id, data }: OutboundMessageData,
+    ) -> Result<Self, Self::Error> {
+        let id = EthMessageId::try_from(
+            ProtoMessageId::from_i32(id)
+                .ok_or_else(|| anyhow::anyhow!("Invalid message id: {}", id))?,
+        )?
+        .to_usize()
+        .unwrap();
+
+        Ok(Self { id, data })
+    }
 }

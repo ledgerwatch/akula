@@ -41,8 +41,8 @@ impl ChainConfig {
             .collect::<Vec<_>>()
     }
 
-    pub fn bootnodes(&self) -> Vec<String> {
-        self.chain_spec.p2p.bootnodes.clone()
+    pub fn bootnodes_devp2p(&self) -> Vec<String> {
+        self.chain_spec.p2p.bootnodes_devp2p.clone()
     }
 
     pub fn dns(&self) -> Option<String> {

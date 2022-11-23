@@ -685,7 +685,7 @@ fn overwrite_chainspec(
     chainspec_file: ExpandedPathBuf,
 ) -> anyhow::Result<()> {
     let mut s = String::new();
-    std::fs::File::open(&chainspec_file)?.read_to_string(&mut s)?;
+    std::fs::File::open(chainspec_file)?.read_to_string(&mut s)?;
     let new_chainspec = TableDecode::decode(s.as_bytes())?;
 
     let chain_data_dir = data_dir.chain_data_dir();

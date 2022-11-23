@@ -548,8 +548,12 @@ impl Node {
     }
 
     pub async fn penalize_peer(&self, peer_id: impl Into<ethereum_interfaces::types::H512>) {
+        let peer_id = peer_id.into();
+
+        debug!("Penalizing peer {:?}", peer_id);
+
         let request = grpc_sentry::PenalizePeerRequest {
-            peer_id: Some(peer_id.into()),
+            peer_id: Some(peer_id),
             penalty: 0i32,
         };
 

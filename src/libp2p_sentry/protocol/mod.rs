@@ -1,6 +1,7 @@
 use crate::sentry::eth::{FullStatusData, StatusMessage};
 use async_trait::async_trait;
 use bytes::BytesMut;
+use educe::Educe;
 use fastrlp::{Decodable, Encodable};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use hashbrown::HashSet;
@@ -30,12 +31,22 @@ pub enum ProtocolResponse {
     Status(StatusMessage),
 }
 
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct ProtocolBehaviour {
-    status: Arc<RwLock<Option<FullStatusData>>>,
+    pub status: Arc<RwLock<Option<FullStatusData>>>,
 
+    #[educe(Debug(ignore))]
     request_response: RequestResponse<ProtocolCodec>,
     pending_events: VecDeque<(PeerId, crate::sentry::devp2p::Message)>,
     valid_peers: HashSet<PeerId>,
+    invalid_peers: HashSet<PeerId>,
+}
+
+impl Default for ProtocolBehaviour {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProtocolBehaviour {
@@ -49,6 +60,7 @@ impl ProtocolBehaviour {
             ),
             pending_events: Default::default(),
             valid_peers: Default::default(),
+            invalid_peers: Default::default(),
         }
     }
 
@@ -278,6 +290,7 @@ impl NetworkBehaviour for ProtocolBehaviour {
             .inject_event(peer_id, connection, event)
     }
 
+    #[instrument(skip(cx, params))]
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
@@ -328,6 +341,9 @@ impl NetworkBehaviour for ProtocolBehaviour {
 
                                 if self.valid_peers.contains(&peer) {
                                     self.pending_events.push_back((peer, msg));
+                                } else {
+                                    self.request_response
+                                        .send_request(&peer, ProtocolEvent::Status);
                                 }
                             }
                         },

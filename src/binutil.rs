@@ -26,8 +26,22 @@ impl AkulaDataDir {
         self.0.join("sentrydb")
     }
 
-    pub fn nodekey(&self) -> PathBuf {
-        self.0.join("nodekey")
+    pub fn devp2p(&self) -> PathBuf {
+        self.0.join("devp2p_nodekey")
+    }
+
+    pub fn libp2p(&self) -> PathBuf {
+        self.0.join("libp2p_nodekey")
+    }
+
+    #[cfg(test)]
+    pub fn temp() -> Self {
+        Self(
+            tempfile::tempdir()
+                .expect("Failed to create temp dir")
+                .into_path()
+                .into(),
+        )
     }
 }
 

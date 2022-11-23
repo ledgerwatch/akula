@@ -352,6 +352,12 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                             listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                         }
 
+                        let listen_addrs = listen_addrs
+                            .drain(..)
+                            .collect::<HashSet<_>>()
+                            .drain()
+                            .collect::<Vec<_>>();
+
                         self.insert_client_version(&peer_id, agent_version);
                         self.insert_peer_addresses(&peer_id, listen_addrs.clone());
 
